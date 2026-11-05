@@ -9,6 +9,30 @@ LED_LAST_ERROR="${LED_LAST_ERROR:-}"
 
 mkdir -p "$LED_API_CACHE_DIR" 2>/dev/null || true
 
+# Serialize application transactions (cache check, CLI and cache commit), not
+# hardware access. The CLI retains its own controller lock and owner checks.
+# Keep this inode across cache resets; unlinking it would split the lock.
+_led_serialized() {
+    if [[ "${_LED_APP_LOCK_HELD:-0}" == 1 ]]; then "$@"; return $?; fi
+    local fd rc _LED_APP_LOCK_HELD=1
+    if ! command -v flock >/dev/null 2>&1; then
+        led_set_error "flock is required to serialize LED application operations"
+        return 1
+    fi
+    if ! exec {fd}>"$LED_API_CACHE_DIR/.operation.lock"; then
+        led_set_error "cannot open LED application lock"
+        return 1
+    fi
+    if flock -w 6 "$fd"; then
+        if "$@"; then rc=0; else rc=$?; fi
+    else
+        led_set_error "LED application operation is busy"
+        rc=75
+    fi
+    exec {fd}>&-
+    return "$rc"
+}
+
 _led_log() {
     if declare -F ugreen_log_debug >/dev/null; then
         ugreen_log_debug "led.detail" "$*"
@@ -38,7 +62,7 @@ led_cli_available() {
 
 led_cli_version() {
     led_cli_available || { printf 'unavailable\n'; return; }
-    printf '%s\n' "${UGREEN_CLI_RELEASE:-almighty-20261027-n76-direct}"
+    printf '%s\n' "${UGREEN_CLI_RELEASE:-local-dxp2800-em26-20261101}"
 }
 
 ensure_cli() {
@@ -66,7 +90,11 @@ led_cli_run() {
 
 # Shared CLI execution for single LEDs and a batch of already mapped names.
 _led_cli_run_raw() {
-    local logical="$1" raw="$2" protocol output rc action arg
+    _led_serialized _led_cli_run_raw_unlocked "$@"
+}
+
+_led_cli_run_raw_unlocked() {
+    local logical="$1" raw="$2" protocol output rc action arg now retry_at=0
     local -a access=()
     shift 2
     ensure_cli || return 1
@@ -75,12 +103,32 @@ _led_cli_run_raw() {
         case "$arg" in -on|-off|-color|-brightness|-blink|-breath) access=(--force --apply); break ;; esac
     done
     action="$*"
+    if (( ${#access[@]} )); then
+        now=$(date +%s)
+        if [[ -f "$LED_API_CACHE_DIR/.write-retry-at" ]]; then
+            read -r retry_at < "$LED_API_CACHE_DIR/.write-retry-at" || retry_at=0
+        fi
+        if [[ "$retry_at" =~ ^[0-9]+$ ]] && (( retry_at > now && retry_at <= now + 10 )); then
+            led_set_error "LED writes cooling down after controller failure; retry in $((retry_at - now))s"
+            return 75
+        fi
+        # A failed multi-action command may already have changed the LED.
+        # Invalidate before starting, including timeout/interruption paths.
+        if [[ "$logical" == all || "$logical" == snapshot ]]; then
+            rm -f "$LED_API_CACHE_DIR"/*.state
+        else
+            rm -f "$(_cache_file "$logical")"
+        fi
+    fi
     if command -v timeout >/dev/null 2>&1; then
         if output=$(timeout 5 "$UGREEN_CLI" "$raw" "$@" "${access[@]}" 2>&1); then rc=0; else rc=$?; fi
     else
         if output=$("$UGREEN_CLI" "$raw" "$@" "${access[@]}" 2>&1); then rc=0; else rc=$?; fi
     fi
     if [[ "$rc" -ne 0 ]]; then
+        if (( ${#access[@]} )) && [[ "$rc" == 3 || "$rc" == 5 || "$rc" == 124 ]]; then
+            printf '%s\n' "$(( $(date +%s) + 10 ))" > "$LED_API_CACHE_DIR/.write-retry-at"
+        fi
         output="${output//$'\n'/ }"
         led_set_error "LED CLI command failed: $logical $action (rc=$rc${output:+, $output})"
         _led_log_failure "led.cli_command_failed" "LED CLI command failed" \
@@ -184,7 +232,11 @@ led_write_cached_state() {
 }
 
 led_clear_cache() {
-    rm -f "$LED_API_CACHE_DIR"/* 2>/dev/null || true
+    _led_serialized _led_clear_cache_unlocked
+}
+
+_led_clear_cache_unlocked() {
+    rm -f "$LED_API_CACHE_DIR"/*.state 2>/dev/null || true
     led_backend_reset
 }
 
@@ -195,6 +247,10 @@ led_ensure_on() {
 }
 
 led_set_color() {
+    _led_serialized _led_set_color_unlocked "$@"
+}
+
+_led_set_color_unlocked() {
     local led="$1" r="$2" g="$3" b="$4" brightness="${5:-64}" key
     if led_power26_profile; then
         [[ "$led" == "power" ]] || { led_set_error "DXP480T only exposes the power LED"; return 2; }
@@ -210,6 +266,10 @@ led_set_color() {
 }
 
 led_set_off() {
+    _led_serialized _led_set_off_unlocked "$@"
+}
+
+_led_set_off_unlocked() {
     local led="$1"
     if led_power26_profile; then
         [[ "$led" == "power" ]] || { led_set_error "DXP480T only exposes the power LED"; return 2; }
@@ -223,6 +283,10 @@ led_set_off() {
 }
 
 led_set_blink() {
+    _led_serialized _led_set_blink_unlocked "$@"
+}
+
+_led_set_blink_unlocked() {
     local led="$1" r="$2" g="$3" b="$4" period_ms="$5" on_ms="$6" brightness="${7:-64}"
     local off_ms key
     if led_power26_profile; then
@@ -247,6 +311,10 @@ led_set_blink() {
 # The DXP480T page uses supported modes of the bundled compatibility CLI. No shell
 # code in the application probes buses or accesses the LED controller directly.
 led_set_power26_effect() {
+    _led_serialized _led_set_power26_effect_unlocked "$@"
+}
+
+_led_set_power26_effect_unlocked() {
     local color="${1:-preserve}" effect="${2:-steady}"
     local key
     led_power26_profile || { led_set_error "DXP480T power protocol is not active for this model"; return 2; }

@@ -884,7 +884,7 @@ case "$API_PATH" in
         elif ! [[ "$channel" =~ ^(cpu|sys|all)$ && "$pwm" =~ ^[0-9]+$ ]] || (( pwm < 0 || pwm > 255 )); then
             echo '{"ok":false,"error":"风扇参数无效"}'
         elif ! bios_write_confirmation_valid; then
-            if [[ "$(bios_detected_profile)" == "dx4600" || "$(bios_detected_profile)" == "dxp4800" || "$(bios_detected_profile)" == "dxp4800s" || "$(bios_detected_profile)" == "dxp6800" || "$(bios_detected_profile)" == "dxp6800pro" ]]; then
+            if [[ "$(bios_detected_profile)" == "dxp2800" || "$(bios_detected_profile)" == "dx4600" || "$(bios_detected_profile)" == "dxp4800" || "$(bios_detected_profile)" == "dxp4800s" || "$(bios_detected_profile)" == "dxp6800" || "$(bios_detected_profile)" == "dxp6800pro" || "$(bios_detected_profile)" == "dxp8800pro" ]]; then
                 echo '{"ok":false,"error":"固件逆向风扇写入需要先确认风险"}'
             else
                 echo '{"ok":false,"error":"直控风扇写入需要先确认 IT8613 直控风险"}'

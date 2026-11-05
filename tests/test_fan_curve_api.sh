@@ -20,7 +20,7 @@ level=off
 [fan_curve]
 enabled=false
 EOF
-for model in dx4600 dxp4800 dxp4800plus dxp4800s dxp480tplus dxp6800pro dxp6800plus dxp6800; do : > "$PLUGINS/$model.so"; done
+for model in dxp2800 dx4600 dxp4800 dxp4800plus dxp4800s dxp480tplus dxp6800pro dxp6800plus dxp6800 dxp8800pro; do : > "$PLUGINS/$model.so"; done
 cat > "$BIN" <<'EOF'
 #!/bin/sh
 printf 'CALL' >> "$UGREENCTL_CALLS"
@@ -150,4 +150,21 @@ fi
 [[ "$(cat "$CONFIG")" == "$config_before" ]] || fail "unconfirmed curve start changed the configuration"
 [[ ! -e "$TMP/run/fan-curve.pid" ]] || fail "unconfirmed curve start created a daemon PID"
 
+export UGREEN_PRODUCT_NAME="DXP2800" UGREEN_PRODUCT_VERSION="EM_DXP2800_V1.0.26"
+json=$(request /bios/fan-curve 'action=start&mode=custom&confirm=firmware-reversed&interval=10&downshift=60&minimum=40&cpu=42%2C50%2C70%2C78%2C90&hdd=30%2C40%2C46%2C52%2C55&ssd=50%2C55%2C60%2C65%2C70&pwm=65%2C125%2C200%2C235&require_storage=false' POST)
+assert_contains "$json" '"ok":true'
+[[ "$(sed -n 's/^profile=//p' "$CONFIG")" == "custom" ]] || fail "EM26 custom curve was not saved"
+[[ "$(sed -n 's/^allow_unvalidated_writes=//p' "$CONFIG")" == "true" ]] || fail "EM26 curve lost write acknowledgement"
+json=$(request /bios/fan-curve 'action=stop' POST)
+assert_contains "$json" '"ok":true'
+json=$(request /bios/fan-curve 'action=start&mode=stock-4800&confirm=firmware-reversed' POST)
+assert_contains "$json" '"ok":false'
+unset UGREEN_PRODUCT_VERSION
+
+export UGREEN_PRODUCT_NAME="DXP8800 Pro"
+json=$(request /bios/fan-curve 'action=start&mode=stock-8800pro&confirm=firmware-reversed&require_storage=false' POST)
+assert_contains "$json" '"ok":true'
+[[ "$(sed -n 's/^profile=//p' "$CONFIG")" == stock-8800pro ]] || fail '8800 must use its own stock profile'
+json=$(request /bios/fan-curve 'action=stop' POST)
+assert_contains "$json" '"ok":true'
 echo "fan curve API tests passed"

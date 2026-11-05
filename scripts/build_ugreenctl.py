@@ -18,7 +18,7 @@ SERVER = ROOT / 'App.Native.UGreenLED/app/server'
 SOURCE = ROOT.parent / 'UGREEN-NAS-Hardware'
 LOCK_FILE = Path(__file__).with_name('hardware-release.json')
 PROGRAMS = ('ugreenctl', 'ugreenctl-fand', 'ugreen_leds_cli', 'ugreenctl-ledd')
-MODELS = ('dx4600', 'dxp2800', 'dxp4800', 'dxp4800plus', 'dxp4800s', 'dxp480tplus', 'dxp6800pro', 'dxp6800plus', 'dxp6800', 'dxp8800plus')
+MODELS = ('dx4600', 'dxp2800', 'dxp4800', 'dxp4800plus', 'dxp4800s', 'dxp480tplus', 'dxp6800pro', 'dxp6800plus', 'dxp6800', 'dxp8800plus', 'dxp8800pro')
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
@@ -101,7 +101,7 @@ def smoke_test(files, runtime_root, expected_version=None):
             return result.stdout + result.stderr
         models = run('ugreenctl', ['--plugin-dir', '/work/models' if os.name == 'nt' else str(stage / 'models'), 'models'])
         if set(MODELS) != {line.split()[0] for line in models.splitlines() if line.strip()}:
-            raise ValueError('Not all ten plugins loaded')
+            raise ValueError('Model plugin list mismatch')
         if expected_version is not None and run('ugreenctl', ['--version']).strip() != expected_version:
             raise ValueError('Imported CLI version mismatch')
         for command in (['network', 'wol', 'models'], ['power', 'rtc-wake', 'models']):
@@ -164,9 +164,9 @@ def install_release(manifest, files, lock, server=SERVER):
     (server / 'lib/ugreenctl/build-info.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
 
 def download_assets(lock, directory):
-    if lock.get('source_type') == 'local-artifact':
+    if lock.get('source_type') in ('local-artifact', 'application-local-artifact'):
         # Unpublished builds retain normal archive, manifest and payload checks.
-        root = SOURCE.resolve()
+        root = (ROOT if lock['source_type'] == 'application-local-artifact' else SOURCE).resolve()
         source = (root / lock['artifact_path']).resolve()
         if not source.is_relative_to(root):
             raise ValueError('Local hardware artifact escapes source root')
@@ -207,7 +207,7 @@ def main():
         smoke_test(files, args.runtime_root, expected_version=lock.get('version'))
         if not args.check_only:
             install_release(manifest, files, lock)
-        print(f'Validated {lock["tag"]}: four programs, ten plugins, all manifest payload hashes')
+        print(f'Validated {lock["tag"]}: four programs, {len(MODELS)} plugins, all manifest payload hashes')
 
 if __name__ == '__main__':
     main()

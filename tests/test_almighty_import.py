@@ -76,7 +76,7 @@ class ImportTests(unittest.TestCase):
         (server / 'bin/ugreen_leds_cli').write_bytes(b'old LED')
         build.install_release(manifest, files, lock, server)
         receipt = json.loads((server / 'lib/ugreenctl/build-info.json').read_text())
-        self.assertEqual(len(receipt['files']), 14)
+        self.assertEqual(len(receipt['files']), len(build.PROGRAMS) + len(build.MODELS))
         self.assertEqual(receipt['release_tag'], 'v0.3.0')
         self.assertEqual(receipt['branch'], 'main')
         self.assertEqual(receipt['revision'], lock['commit'])

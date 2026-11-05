@@ -74,6 +74,10 @@ bios_detected_profile() {
     local product
     product=$(hardware_detected_product_name 2>/dev/null || true)
     case "${product^^}" in
+        "DXP2800")
+            if [[ "$(hardware_detected_product_version)" == "EM_DXP2800_V1.0.26" ]]; then
+                echo "dxp2800"
+            else echo "unknown"; fi ;;
         "DX4600"|"DX4600+"|"DX4600 PRO") echo "dx4600" ;;
         "DXP480T PLUS"|"UGREEN DXP480T PLUS") echo "dxp480t_plus" ;;
         "DXP4800") echo "dxp4800" ;;
@@ -83,13 +87,14 @@ bios_detected_profile() {
         "DXP6800") echo "dxp6800" ;;
         "DXP6800 PLUS") echo "dxp6800plus" ;;
         "DXP6800 PRO") echo "dxp6800pro" ;;
+        "DXP8800 PRO") echo "dxp8800pro" ;;
         *) echo "unknown" ;;
     esac
 }
 
 bios_supported_model() {
     case "$(bios_detected_profile)" in
-        dx4600|dxp4800|dxp4800_plus|dxp4800_pro|dxp4800s|dxp480t_plus|dxp6800|dxp6800pro|dxp6800plus) return 0 ;;
+        dxp2800|dx4600|dxp4800|dxp4800_plus|dxp4800_pro|dxp4800s|dxp480t_plus|dxp6800|dxp6800pro|dxp6800plus|dxp8800pro) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -113,7 +118,8 @@ bios_write_confirmation_required() {
     bios_rtc_supported_model && return 0
     case "$(bios_detected_profile)" in
         # These models retain firmware-reversed writes requiring acknowledgement.
-        dx4600|dxp4800|dxp4800_plus|dxp4800_pro|dxp4800s|dxp480t_plus|dxp6800|dxp6800pro|dxp6800plus) return 0 ;;
+        dxp2800) return 0 ;;
+        dx4600|dxp4800|dxp4800_plus|dxp4800_pro|dxp4800s|dxp480t_plus|dxp6800|dxp6800pro|dxp6800plus|dxp8800pro) return 0 ;;
     esac
     bios_direct_fan_fallback_active
 }
@@ -149,6 +155,8 @@ bios_ugreenctl_plugin_dir() {
         [[ -n "$candidate" && -r "$candidate/dx4600.so" && -r "$candidate/dxp4800.so" && -r "$candidate/dxp4800plus.so" && -r "$candidate/dxp4800s.so" && -r "$candidate/dxp480tplus.so" && -r "$candidate/dxp6800pro.so" ]] && {
             if [[ "$(bios_detected_profile)" == "dxp6800" && ! -r "$candidate/dxp6800.so" ]]; then continue; fi
             if [[ "$(bios_detected_profile)" == "dxp6800plus" && ! -r "$candidate/dxp6800plus.so" ]]; then continue; fi
+            if [[ "$(bios_detected_profile)" == "dxp8800pro" && ! -r "$candidate/dxp8800pro.so" ]]; then continue; fi
+            if [[ "$(bios_detected_profile)" == "dxp2800" && ! -r "$candidate/dxp2800.so" ]]; then continue; fi
             printf '%s\n' "$candidate"
             return 0
         }
@@ -175,6 +183,7 @@ bios_fan_curve_stock_profile_for_model() {
         dxp6800) echo "stock-6800" ;;
         dxp6800pro) echo "stock-6800pro" ;;
         dxp6800plus) echo "stock-6800plus" ;;
+        dxp8800pro) echo "stock-8800pro" ;;
         *) return 1 ;;
     esac
 }
@@ -823,13 +832,13 @@ bios_read_status() {
     if ! "$fan_supported"; then BIOS_MODEL="$BIOS_WAKE_MODEL"; BIOS_CPU_FAN_PRESENT=false; BIOS_EXPERIMENTAL=true; fi
     if [[ "$BIOS_MODEL" == "dxp480t_plus" ]]; then
         BIOS_FAN_WRITE_TARGET="all"
-    elif [[ "$BIOS_MODEL" == "dx4600" || "$BIOS_MODEL" == "dxp4800" || "$BIOS_MODEL" == "dxp4800s" ]]; then
+    elif [[ "$BIOS_MODEL" == "dxp2800" || "$BIOS_MODEL" == "dx4600" || "$BIOS_MODEL" == "dxp4800" || "$BIOS_MODEL" == "dxp4800s" ]]; then
         BIOS_EXPERIMENTAL=true
         BIOS_MIN_PWM=40
         BIOS_CPU_FAN_PRESENT=false
         BIOS_PWM_READABLE=true
         BIOS_WRITE_CONFIRMATION_REQUIRED=true
-    elif [[ "$BIOS_MODEL" == "dxp6800" || "$BIOS_MODEL" == "dxp6800pro" || "$BIOS_MODEL" == "dxp6800plus" ]]; then
+    elif [[ "$BIOS_MODEL" == "dxp6800" || "$BIOS_MODEL" == "dxp6800pro" || "$BIOS_MODEL" == "dxp6800plus" || "$BIOS_MODEL" == "dxp8800pro" ]]; then
         BIOS_EXPERIMENTAL=true
     fi
     bios_write_confirmation_required && BIOS_WRITE_CONFIRMATION_REQUIRED=true
@@ -873,26 +882,26 @@ bios_set_fan() {
     # ugreenctl still requires exact DMI, chip-ID and owner checks.
     local -a args=(--force --apply)
     BIOS_LAST_ERROR=""
-    bios_supported_model || { BIOS_LAST_ERROR="BIOS 控制仅支持 DX4600 / DX4600+ / DX4600 Pro、DXP4800、DXP4800 Plus / Pro、DXP4800S、DXP480T Plus 与 DXP6800 / Plus / Pro"; return 1; }
+    bios_supported_model || { BIOS_LAST_ERROR="BIOS 控制支持 DXP2800 EM26、DX4600 / DX4600+ / DX4600 Pro、DXP4800、DXP4800 Plus / Pro、DXP4800S、DXP480T Plus 与 DXP6800 / Plus / Pro、DXP8800 Pro"; return 1; }
     model=$(bios_detected_profile)
     case "$model" in
-        dx4600|dxp4800|dxp4800s)
+        dxp2800|dx4600|dxp4800|dxp4800s)
             [[ "$pwm" =~ ^[0-9]+$ ]] && (( pwm >= 40 && pwm <= 255 )) || {
-                BIOS_LAST_ERROR="DX4600 / DXP4800 系列 PWM 必须在 40 到 255 之间"
+                BIOS_LAST_ERROR="单风扇机型 PWM 必须在 40 到 255 之间"
                 return 1
             }
             [[ "$channel" == "sys" ]] || {
-                BIOS_LAST_ERROR="DX4600 / DXP4800 单风扇机型仅支持系统风扇写入"
+                BIOS_LAST_ERROR="单风扇机型仅支持系统风扇写入"
                 return 1
             }
             ;;
-        dxp6800|dxp6800pro|dxp6800plus)
+        dxp6800|dxp6800pro|dxp6800plus|dxp8800pro)
             [[ "$pwm" =~ ^[0-9]+$ ]] && (( pwm >= 40 && pwm <= 255 )) || {
-                BIOS_LAST_ERROR="DXP6800 / Plus / Pro PWM 必须在 40 到 255 之间"
+                BIOS_LAST_ERROR="DXP6800 / Plus / Pro、DXP8800 Pro PWM 必须在 40 到 255 之间"
                 return 1
             }
             [[ "$channel" == "cpu" || "$channel" == "sys" ]] || {
-                BIOS_LAST_ERROR="DXP6800 / Plus / Pro 仅支持 CPU 或成对系统风扇写入"
+                BIOS_LAST_ERROR="DXP6800 / Plus / Pro、DXP8800 Pro 仅支持 CPU 或成对系统风扇写入"
                 return 1
             }
             ;;
@@ -920,7 +929,7 @@ bios_set_fan() {
     if ! output=$(bios_cli "${args[@]}" fan set "$channel" "$pwm" 2>&1); then
         bios_set_error_from_output "$output" "设置风扇 PWM 失败"
         _bios_log_error "bios.fan_set_failed" "$BIOS_LAST_ERROR" \
-        "model=$model" "channel=$channel" "pwm=$pwm" "forced=$([[ "$model" == "dx4600" || "$model" == "dxp4800" || "$model" == "dxp4800s" || "$model" == "dxp6800" || "$model" == "dxp6800pro" || "$model" == "dxp6800plus" ]] && echo true || echo false)" \
+        "model=$model" "channel=$channel" "pwm=$pwm" "forced=$([[ "$model" == "dxp2800" || "$model" == "dx4600" || "$model" == "dxp4800" || "$model" == "dxp4800s" || "$model" == "dxp6800" || "$model" == "dxp6800pro" || "$model" == "dxp6800plus" || "$model" == "dxp8800pro" ]] && echo true || echo false)" \
             "output=$output"
         return 1
     fi
@@ -941,12 +950,12 @@ bios_set_startup() {
     local policy="$1" upstream_policy output model
     local -a args=(--apply)
     BIOS_LAST_ERROR=""
-    bios_supported_model || { BIOS_LAST_ERROR="BIOS 控制仅支持 DX4600 / DX4600+ / DX4600 Pro、DXP4800、DXP4800 Plus / Pro、DXP4800S、DXP480T Plus 与 DXP6800 / Plus / Pro"; return 1; }
+    bios_supported_model || { BIOS_LAST_ERROR="当前机型不支持来电启动策略"; return 1; }
     model=$(bios_detected_profile)
     # DXP4800 Plus / Pro use the firmware-recovered IT8613 AC-recovery
     # path too.  Keep the app adapter aligned with ugreenctl: every
     # protected startup-policy write carries both explicit write guards.
-    [[ "$model" == "dx4600" || "$model" == "dxp4800" || "$model" == "dxp4800_plus" || "$model" == "dxp4800_pro" || "$model" == "dxp4800s" || "$model" == "dxp6800" || "$model" == "dxp6800pro" || "$model" == "dxp6800plus" ]] && args=(--force --apply)
+    [[ "$model" == "dxp2800" || "$model" == "dx4600" || "$model" == "dxp4800" || "$model" == "dxp4800_plus" || "$model" == "dxp4800_pro" || "$model" == "dxp4800s" || "$model" == "dxp6800" || "$model" == "dxp6800pro" || "$model" == "dxp6800plus" || "$model" == "dxp8800pro" ]] && args=(--force --apply)
     case "$policy" in
         on|off) upstream_policy="$policy" ;;
         last) upstream_policy="restore" ;;
@@ -960,7 +969,7 @@ bios_set_startup() {
     fi
     _bios_log_info "bios.startup_set" "来电启动策略写入成功" \
         "model=$model" "policy=$policy" "upstream_policy=$upstream_policy" \
-        "forced=$([[ "$model" == "dx4600" || "$model" == "dxp4800" || "$model" == "dxp4800_plus" || "$model" == "dxp4800_pro" || "$model" == "dxp4800s" || "$model" == "dxp6800" || "$model" == "dxp6800pro" || "$model" == "dxp6800plus" ]] && echo true || echo false)"
+        "forced=$([[ "$model" == "dxp2800" || "$model" == "dx4600" || "$model" == "dxp4800" || "$model" == "dxp4800_plus" || "$model" == "dxp4800_pro" || "$model" == "dxp4800s" || "$model" == "dxp6800" || "$model" == "dxp6800pro" || "$model" == "dxp6800plus" || "$model" == "dxp8800pro" ]] && echo true || echo false)"
 }
 
 # The upstream command writes and verifies live registers, not BIOS NVRAM.

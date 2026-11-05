@@ -1,7 +1,7 @@
 #!/bin/bash
 # 绿联机型档案：将 DMI 型号转换为控制协议、LED 布局与 HCTL 规则。
 
-UGREEN_CLI_RELEASE="almighty-20261027-n76-direct"
+UGREEN_CLI_RELEASE="local-dxp2800-em26-20261101"
 
 hardware_detected_product_name() {
     local product="${UGREEN_PRODUCT_NAME:-}" file
@@ -19,6 +19,18 @@ hardware_detected_product_name() {
     product="${product//$'\r'/}"
     product="${product//$'\n'/}"
     printf '%s\n' "$product"
+}
+
+hardware_detected_product_version() {
+    local version="${UGREEN_PRODUCT_VERSION:-}" file
+    if [[ -z "$version" ]]; then
+        for file in /sys/class/dmi/id/product_version /sys/devices/virtual/dmi/id/product_version; do
+            if [[ -r "$file" ]]; then version=$(<"$file"); [[ -n "$version" ]] && break; fi
+        done
+    fi
+    version="${version//$'\r'/}"
+    version="${version//$'\n'/}"
+    printf '%s\n' "$version"
 }
 
 hardware_profile_from_name() {
@@ -75,7 +87,15 @@ hardware_profile_display_name() {
                 *) echo "UGREEN DXP6800 Pro" ;;
             esac
             ;;
-        dxp8800) echo "UGREEN DXP8800 Plus" ;;
+        dxp8800)
+            case "$(hardware_detected_product_name)" in
+                "DXP8800"|"UGREEN DXP8800") echo "UGREEN DXP8800" ;;
+                "DXP8800 Plus"|"UGREEN DXP8800 Plus") echo "UGREEN DXP8800 Plus" ;;
+                "DXP8800 Pro"|"UGREEN DXP8800 Pro") echo "UGREEN DXP8800 Pro" ;;
+                "DXP8800 Ultra"|"UGREEN DXP8800 Ultra") echo "UGREEN DXP8800 Ultra" ;;
+                *) echo "UGREEN DXP8800 系列" ;;
+            esac
+            ;;
         dxp480t_plus) echo "UGREEN DXP480T / DXP480T Plus" ;;
         idx6011) echo "UGREEN iDX6011" ;;
         idx6011_pro) echo "UGREEN iDX6011 Pro" ;;

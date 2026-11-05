@@ -14,6 +14,7 @@ PLUGINS="$TMP/models"
 ARGS="$TMP/args"
 STATUS="$TMP/status"
 mkdir -p "$PLUGINS"
+: > "$PLUGINS/dxp2800.so"
 : > "$PLUGINS/dx4600.so"
 : > "$PLUGINS/dxp4800.so"
 : > "$PLUGINS/dxp4800plus.so"
@@ -22,6 +23,7 @@ mkdir -p "$PLUGINS"
 : > "$PLUGINS/dxp6800pro.so"
 : > "$PLUGINS/dxp6800plus.so"
 : > "$PLUGINS/dxp6800.so"
+: > "$PLUGINS/dxp8800pro.so"
 cat > "$BIN" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" > "$UGREENCTL_ARGS"
@@ -344,4 +346,58 @@ bios_set_fan all 100
 assert_eq "$(tr '\n' ' ' < "$ARGS")" "--plugin-dir $PLUGINS --force --apply fan set all 100 "
 unset BIOS_TEST_IT87_MODULE_PATH
 
+UGREEN_PRODUCT_NAME="DXP2800"
+UGREEN_PRODUCT_VERSION="EM_DXP2800_V1.0.26"
+bios_supported_model || fail "DXP2800 EM26 should expose guarded fan control"
+cat > "$STATUS" <<'EOF'
+startup: restore
+fan sys: pwm=128 mode=manual tach=750 rpm=900
+EOF
+bios_read_status
+assert_eq "$BIOS_MODEL" "dxp2800"
+assert_eq "$BIOS_AVAILABLE" "true"
+assert_eq "$BIOS_CPU_FAN_PRESENT" "false"
+assert_eq "$BIOS_SYS_PWM" "128"
+assert_eq "$BIOS_STARTUP_AVAILABLE" "true"
+assert_eq "$BIOS_WRITE_CONFIRMATION_REQUIRED" "true"
+bios_set_fan sys 40
+assert_eq "$(tr '\n' ' ' < "$ARGS")" "--plugin-dir $PLUGINS --force --apply fan set sys 40 "
+! bios_set_fan sys 39 || fail "EM26 PWM floor must be enforced"
+! bios_set_fan cpu 128 || fail "EM26 cannot expose a CPU output"
+bios_set_startup on
+assert_eq "$(tr '\n' ' ' < "$ARGS")" "--plugin-dir $PLUGINS --force --apply power startup set on "
+for UGREEN_PRODUCT_VERSION in '' EM_DXP2800_V1.0.24 'DXP2800 V1.2 251215' EM_DXP2800_V1.0.26-extra; do
+    ! bios_supported_model || fail "DXP2800 revision guard"
+done
+UGREEN_PRODUCT_VERSION="EM_DXP2800_V1.0.26"
+UGREEN_PRODUCT_NAME="DXP2800 GT"
+! bios_supported_model || fail "GT must not inherit EM26 fan control"
+unset UGREEN_PRODUCT_VERSION
+
+UGREEN_PRODUCT_NAME="DXP8800 Pro"
+cat > "$STATUS" <<'EOF'
+startup: restore
+fan cpu: pwm=70 mode=manual tach=675 rpm=1000
+fan sys1: pwm=64 mode=manual tach=750 rpm=900
+fan sys2: pwm=64 mode=manual tach=800 rpm=850
+EOF
+bios_read_status
+assert_eq "$BIOS_MODEL" dxp8800pro
+assert_eq "$BIOS_AVAILABLE" true
+assert_eq "$BIOS_STARTUP_AVAILABLE" true
+assert_eq "$BIOS_SYS2_RPM" 850
+assert_eq "$(bios_fan_curve_stock_profile_for_model)" stock-8800pro
+bios_set_fan cpu 70
+assert_eq "$(tr '\n' ' ' < "$ARGS")" "--plugin-dir $PLUGINS --force --apply fan set cpu 70 "
+bios_set_fan sys 64
+assert_eq "$(tr '\n' ' ' < "$ARGS")" "--plugin-dir $PLUGINS --force --apply fan set sys 64 "
+! bios_set_fan sys1 128 || fail '8800 system fans must remain paired'
+! bios_set_fan cpu 39 || fail '8800 PWM floor'
+bios_set_startup last
+assert_eq "$(tr '\n' ' ' < "$ARGS")" "--plugin-dir $PLUGINS --force --apply power startup set restore "
+rm "$PLUGINS/dxp8800pro.so"
+assert_eq "$(bios_backend)" unavailable
+for UGREEN_PRODUCT_NAME in 'DXP8800' 'DXP8800 Plus' 'DXP8800 Ultra' 'DXP8800 Pro Engineering'; do
+    ! bios_supported_model || fail '8800 Pro support must not enable another exact model'
+done
 echo "BIOS control tests passed"
